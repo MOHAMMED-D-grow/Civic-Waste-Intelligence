@@ -1,0 +1,10 @@
+{
+  "name": "CleanWatch AI",
+  "description": "AI-Powered Open-Area Waste Detection & Smart Civic Reporting",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

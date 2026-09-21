@@ -172,20 +172,46 @@ export const LocationPickerMap: React.FC<LocationPickerMapProps> = ({
     }
   }, [latitude, longitude]);
 
-  // Handle marker drag or map click (Reverse Geocoding via Nominatim)
+  // Handle marker drag or map click (Reverse Geocoding via Nominatim with static fallback)
   const handleMarkerMoved = async (lat: number, lon: number) => {
     setReverseGeocoding(true);
     try {
-      const res = await fetch(`/api/geocode/reverse?lat=${lat}&lon=${lon}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.display_name) {
-          onLocationChange(lat, lon, data.display_name);
-          setLastSelectedStreet(data.display_name.split(",")[0]);
-          return;
+      let displayName = "";
+      try {
+        const res = await fetch(`/api/geocode/reverse?lat=${lat}&lon=${lon}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.display_name) {
+            displayName = data.display_name;
+          }
+        }
+      } catch {
+        // Backend proxy not reachable (e.g. static GitHub Pages), fallback to direct OSM
+      }
+
+      if (!displayName) {
+        try {
+          const directRes = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          if (directRes.ok) {
+            const data = await directRes.json();
+            if (data && data.display_name) {
+              displayName = data.display_name;
+            }
+          }
+        } catch {
+          // ignore
         }
       }
-      onLocationChange(lat, lon);
+
+      if (displayName) {
+        onLocationChange(lat, lon, displayName);
+        setLastSelectedStreet(displayName.split(",")[0]);
+      } else {
+        onLocationChange(lat, lon);
+      }
     } catch (err) {
       console.warn("Reverse geocode failed:", err);
       onLocationChange(lat, lon);
@@ -194,7 +220,7 @@ export const LocationPickerMap: React.FC<LocationPickerMapProps> = ({
     }
   };
 
-  // Debounced auto-complete query runner
+  // Debounced auto-complete query runner with static fallback
   const fetchAutocompleteSuggestions = useCallback(
     async (queryText: string) => {
       const trimmed = queryText.trim();
@@ -213,22 +239,77 @@ export const LocationPickerMap: React.FC<LocationPickerMapProps> = ({
       setIsSearching(true);
 
       try {
-        const queryParams = new URLSearchParams({
-          q: trimmed,
-          lat: String(latitude ?? DEFAULT_LAT),
-          lon: String(longitude ?? DEFAULT_LON),
-        });
+        let loadedSuggestions: AddressSuggestion[] = [];
 
-        const res = await fetch(`/api/geocode/autocomplete?${queryParams.toString()}`, {
-          signal: controller.signal,
-        });
+        // 1. Attempt via server-side proxy
+        try {
+          const queryParams = new URLSearchParams({
+            q: trimmed,
+            lat: String(latitude ?? DEFAULT_LAT),
+            lon: String(longitude ?? DEFAULT_LON),
+          });
 
-        if (res.ok) {
-          const data: AddressSuggestion[] = await res.json();
-          setSuggestions(Array.isArray(data) ? data : []);
-          setShowDropdown(true);
-          setSelectedIndex(-1);
+          const res = await fetch(`/api/geocode/autocomplete?${queryParams.toString()}`, {
+            signal: controller.signal,
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+              loadedSuggestions = data;
+            }
+          }
+        } catch {
+          // Server endpoint not reachable, fallback to direct OSM
         }
+
+        // 2. Direct fallback to OpenStreetMap Nominatim if static/client-only
+        if (loadedSuggestions.length === 0) {
+          try {
+            const target = trimmed.toLowerCase().includes("coimbatore")
+              ? trimmed
+              : `${trimmed}, Coimbatore`;
+            const directUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+              target
+            )}&limit=6&addressdetails=1&countrycodes=in`;
+            const directRes = await fetch(directUrl, {
+              signal: controller.signal,
+              headers: { "Accept-Language": "en" },
+            });
+            if (directRes.ok) {
+              const items = await directRes.json();
+              if (Array.isArray(items)) {
+                loadedSuggestions = items.map((item: any) => {
+                  const addr = item.address || {};
+                  const road = addr.road || addr.street || addr.residential || "";
+                  const title = item.name || road || item.display_name.split(",")[0];
+                  const subtitle = [addr.suburb || addr.neighbourhood, addr.city || "Coimbatore", addr.postcode]
+                    .filter(Boolean)
+                    .join(", ");
+                  return {
+                    place_id: item.place_id,
+                    lat: item.lat,
+                    lon: item.lon,
+                    display_name: item.display_name,
+                    title: title.trim(),
+                    subtitle: subtitle || "OpenStreetMap Coordinates",
+                    type: item.type || item.class || "street_address",
+                    road,
+                    suburb: addr.suburb || "",
+                    city: addr.city || "Coimbatore",
+                    postcode: addr.postcode || "",
+                  };
+                });
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        setSuggestions(loadedSuggestions);
+        setShowDropdown(true);
+        setSelectedIndex(-1);
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") {
           return;

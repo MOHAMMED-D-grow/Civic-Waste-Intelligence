@@ -13,19 +13,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <script>
-      // When raw uncompiled source is served directly by GitHub Pages
+      // When hosted as raw repository root on GitHub Pages without Vite bundler
       if (window.location.hostname.includes('github.io') && !window.location.pathname.includes('/docs')) {
-        var isUncompiled = !!document.querySelector('script[src*="main.tsx"]');
-        if (isUncompiled) {
-          var baseDir = window.location.pathname.replace(/\/$/, '');
-          window.location.replace(baseDir + '/docs/' + window.location.search + window.location.hash);
-        }
+        var baseDir = window.location.pathname.replace(/\/$/, '');
+        window.location.replace(baseDir + '/docs/' + window.location.search + window.location.hash);
       }
     </script>
+    <script type="module" crossorigin src="./assets/index-BjoXi3C1.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-DcERITtD.css">
   </head>
   <body class="bg-[#050c08] text-[#e8f2ec] min-h-screen antialiased selection:bg-emerald-500/30 selection:text-emerald-200">
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
 

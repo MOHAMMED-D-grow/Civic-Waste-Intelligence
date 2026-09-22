@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
 import { Navbar } from "./components/Navbar";
 import { Footer } from "./components/Footer";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -10,44 +11,55 @@ import { ActsPage } from "./pages/ActsPage";
 import { CivicReport, ViewState } from "./types";
 import { getStoredReports, saveReport } from "./utils/storage";
 
-export default function App() {
-  const getInitialView = (): ViewState => {
-    try {
-      const hash = window.location.hash.replace(/^#\/?/, "");
-      if (["dashboard", "report-waste", "reports", "acts"].includes(hash)) {
-        return hash as ViewState;
-      }
-      const saved = sessionStorage.getItem("cleanwatch_current_view");
-      if (saved && ["dashboard", "report-waste", "reports", "acts"].includes(saved)) {
-        return saved as ViewState;
-      }
-    } catch {
-      // ignore
-    }
-    return "dashboard";
-  };
+// Wrapper component to handle route-based report detail loading
+function ReportDetailWrapper({
+  reports,
+  selectedReport,
+  onNavigate,
+  onReportDeleted,
+  onReportUpdated,
+}: {
+  reports: CivicReport[];
+  selectedReport: CivicReport | null;
+  onNavigate: (view: ViewState) => void;
+  onReportDeleted: () => void;
+  onReportUpdated: (updated: CivicReport) => void;
+}) {
+  const { id } = useParams<{ id: string }>();
+  const report = selectedReport || reports.find((r) => r.id === id);
 
-  const [currentView, setCurrentView] = useState<ViewState>(getInitialView);
+  if (!report) {
+    return (
+      <div className="text-center py-16 space-y-4">
+        <p className="text-sm text-emerald-300/70">Report not found or removed.</p>
+        <button
+          type="button"
+          onClick={() => onNavigate("reports")}
+          className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-500 transition"
+        >
+          Return to Registry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ReportDetailPage
+      report={report}
+      onNavigate={onNavigate}
+      onReportDeleted={onReportDeleted}
+      onReportUpdated={onReportUpdated}
+    />
+  );
+}
+
+export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [reports, setReports] = useState<CivicReport[]>([]);
   const [selectedReport, setSelectedReport] = useState<CivicReport | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Synchronize hash changes
-  useEffect(() => {
-    const handleHashChange = () => {
-      try {
-        const hash = window.location.hash.replace(/^#\/?/, "");
-        if (["dashboard", "report-waste", "reports", "acts"].includes(hash)) {
-          setCurrentView(hash as ViewState);
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    window.addEventListener("hashchange", handleHashChange);
-    return () => window.removeEventListener("hashchange", handleHashChange);
-  }, []);
 
   // Load persisted reports from browser localStorage
   const refreshReports = () => {
@@ -71,14 +83,28 @@ export default function App() {
     }, 3500);
   };
 
+  // Derive currentView from location pathname for Navbar/Footer highlighting
+  const getCurrentView = (): ViewState => {
+    const p = location.pathname;
+    if (p === "/" || p === "/dashboard") return "dashboard";
+    if (p === "/report" || p === "/report-waste") return "report-waste";
+    if (p === "/reports") return "reports";
+    if (p === "/act" || p === "/acts") return "acts";
+    if (p === "/result") return "result";
+    if (p === "/report-detail" || p.startsWith("/report/")) return "report-detail";
+    return "dashboard";
+  };
+
+  const currentView = getCurrentView();
+
   const handleNavigate = (view: ViewState) => {
-    setCurrentView(view);
-    try {
-      window.location.hash = view;
-      sessionStorage.setItem("cleanwatch_current_view", view);
-    } catch {
-      // ignore
-    }
+    if (view === "dashboard") navigate("/");
+    else if (view === "report-waste") navigate("/report");
+    else if (view === "reports") navigate("/reports");
+    else if (view === "acts") navigate("/act");
+    else if (view === "result") navigate("/result");
+    else if (view === "report-detail") navigate("/report-detail");
+    else navigate("/");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -86,14 +112,14 @@ export default function App() {
     saveReport(newReport);
     refreshReports();
     setSelectedReport(newReport);
-    setCurrentView("result");
+    navigate("/result");
     showToast("Incident report successfully verified & saved locally!");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSelectReport = (report: CivicReport) => {
     setSelectedReport(report);
-    setCurrentView("report-detail");
+    navigate(`/report/${report.id}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -105,7 +131,9 @@ export default function App() {
 
   const handleReportDeleted = () => {
     refreshReports();
+    setSelectedReport(null);
     showToast("Report removed from local storage.");
+    navigate("/reports");
   };
 
   return (
@@ -127,71 +155,92 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-10">
-        {currentView === "dashboard" && (
-          <DashboardPage
-            onNavigate={handleNavigate}
-            recentReports={reports}
-            onSelectReport={handleSelectReport}
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <DashboardPage
+                onNavigate={handleNavigate}
+                recentReports={reports}
+                onSelectReport={handleSelectReport}
+              />
+            }
           />
-        )}
+          <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
-        {currentView === "report-waste" && (
-          <ReportWastePage onReportCreated={handleReportCreated} />
-        )}
-
-        {currentView === "result" && (
-          selectedReport ? (
-            <ResultPage
-              report={selectedReport}
-              onNavigate={handleNavigate}
-              onReportUpdated={handleReportUpdated}
-            />
-          ) : (
-            <div className="text-center py-16 space-y-4">
-              <p className="text-sm text-emerald-300/70">No report selected for viewing.</p>
-              <button
-                type="button"
-                onClick={() => handleNavigate("reports")}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold"
-              >
-                Go to Reports
-              </button>
-            </div>
-          )
-        )}
-
-        {currentView === "reports" && (
-          <ReportsPage
-            reports={reports}
-            onSelectReport={handleSelectReport}
-            onNavigate={handleNavigate}
-            onRefreshReports={refreshReports}
+          <Route
+            path="/report"
+            element={<ReportWastePage onReportCreated={handleReportCreated} />}
           />
-        )}
+          <Route path="/report-waste" element={<Navigate to="/report" replace />} />
 
-        {currentView === "report-detail" && (
-          selectedReport ? (
-            <ReportDetailPage
-              report={selectedReport}
-              onNavigate={handleNavigate}
-              onReportDeleted={handleReportDeleted}
-              onReportUpdated={handleReportUpdated}
-            />
-          ) : (
-            <div className="text-center py-16 space-y-4">
-              <p className="text-sm text-emerald-300/70">Report not found or removed.</p>
-              <button
-                type="button"
-                onClick={() => handleNavigate("reports")}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold"
-              >
-                Return to Registry
-              </button>
-            </div>
-          )
-        )}
+          <Route
+            path="/reports"
+            element={
+              <ReportsPage
+                reports={reports}
+                onSelectReport={handleSelectReport}
+                onNavigate={handleNavigate}
+                onRefreshReports={refreshReports}
+              />
+            }
+          />
 
-        {currentView === "acts" && <ActsPage onNavigate={handleNavigate} />}
+          <Route path="/act" element={<ActsPage onNavigate={handleNavigate} />} />
+          <Route path="/acts" element={<Navigate to="/act" replace />} />
+
+          <Route
+            path="/result"
+            element={
+              selectedReport ? (
+                <ResultPage
+                  report={selectedReport}
+                  onNavigate={handleNavigate}
+                  onReportUpdated={handleReportUpdated}
+                />
+              ) : (
+                <div className="text-center py-16 space-y-4">
+                  <p className="text-sm text-emerald-300/70">No report selected for viewing.</p>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate("reports")}
+                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-500 transition"
+                  >
+                    Go to Reports
+                  </button>
+                </div>
+              )
+            }
+          />
+
+          <Route
+            path="/report/:id"
+            element={
+              <ReportDetailWrapper
+                reports={reports}
+                selectedReport={selectedReport}
+                onNavigate={handleNavigate}
+                onReportDeleted={handleReportDeleted}
+                onReportUpdated={handleReportUpdated}
+              />
+            }
+          />
+          <Route
+            path="/report-detail"
+            element={
+              <ReportDetailWrapper
+                reports={reports}
+                selectedReport={selectedReport}
+                onNavigate={handleNavigate}
+                onReportDeleted={handleReportDeleted}
+                onReportUpdated={handleReportUpdated}
+              />
+            }
+          />
+
+          {/* Catch-all route redirects back to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
 
       {/* Footer */}

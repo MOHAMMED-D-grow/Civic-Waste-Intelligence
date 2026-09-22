@@ -530,9 +530,14 @@ async function start() {
       server: { middlewareMode: true },
       appType: "spa",
     });
+    // Redirect root to base path in dev
+    app.get("/", (_req, res) => {
+      res.redirect("/Civic-Waste-Intelligence/");
+    });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    app.use("/Civic-Waste-Intelligence", express.static(distPath));
     app.use(express.static(distPath));
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

@@ -177,16 +177,20 @@ export const LocationPickerMap: React.FC<LocationPickerMapProps> = ({
     setReverseGeocoding(true);
     try {
       let displayName = "";
-      try {
-        const res = await fetch(`/api/geocode/reverse?lat=${lat}&lon=${lon}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.display_name) {
-            displayName = data.display_name;
+      const isStaticHost = typeof window !== "undefined" && window.location.hostname.includes("github.io");
+
+      if (!isStaticHost) {
+        try {
+          const res = await fetch(`/api/geocode/reverse?lat=${lat}&lon=${lon}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.display_name) {
+              displayName = data.display_name;
+            }
           }
+        } catch {
+          // Backend proxy not reachable (e.g. static host), fallback to direct OSM
         }
-      } catch {
-        // Backend proxy not reachable (e.g. static GitHub Pages), fallback to direct OSM
       }
 
       if (!displayName) {
@@ -241,26 +245,30 @@ export const LocationPickerMap: React.FC<LocationPickerMapProps> = ({
       try {
         let loadedSuggestions: AddressSuggestion[] = [];
 
-        // 1. Attempt via server-side proxy
-        try {
-          const queryParams = new URLSearchParams({
-            q: trimmed,
-            lat: String(latitude ?? DEFAULT_LAT),
-            lon: String(longitude ?? DEFAULT_LON),
-          });
+        // 1. Attempt via server-side proxy when not on static host
+        const isStaticHost = typeof window !== "undefined" && window.location.hostname.includes("github.io");
 
-          const res = await fetch(`/api/geocode/autocomplete?${queryParams.toString()}`, {
-            signal: controller.signal,
-          });
+        if (!isStaticHost) {
+          try {
+            const queryParams = new URLSearchParams({
+              q: trimmed,
+              lat: String(latitude ?? DEFAULT_LAT),
+              lon: String(longitude ?? DEFAULT_LON),
+            });
 
-          if (res.ok) {
-            const data = await res.json();
-            if (Array.isArray(data) && data.length > 0) {
-              loadedSuggestions = data;
+            const res = await fetch(`/api/geocode/autocomplete?${queryParams.toString()}`, {
+              signal: controller.signal,
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data) && data.length > 0) {
+                loadedSuggestions = data;
+              }
             }
+          } catch {
+            // Server endpoint not reachable, fallback to direct OSM
           }
-        } catch {
-          // Server endpoint not reachable, fallback to direct OSM
         }
 
         // 2. Direct fallback to OpenStreetMap Nominatim if static/client-only

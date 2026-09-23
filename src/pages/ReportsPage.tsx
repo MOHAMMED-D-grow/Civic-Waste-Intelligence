@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   FileText,
   Search,
@@ -10,6 +10,11 @@ import {
   AlertCircle,
   AlertTriangle,
   X,
+  ArrowUpDown,
+  ShieldAlert,
+  ShieldCheck,
+  CheckCircle2,
+  RotateCcw,
 } from "lucide-react";
 import { CivicReport, ViewState } from "../types";
 import { deleteReport, clearAllReports } from "../utils/storage";
@@ -21,6 +26,14 @@ interface ReportsPageProps {
   onRefreshReports: () => void;
 }
 
+export type ResultFilter =
+  | "ALL"
+  | "WASTE DETECTED"
+  | "NO SIGNIFICANT WASTE DETECTED"
+  | "REPORTED";
+
+export type SortOrder = "newest" | "oldest";
+
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   reports,
   onSelectReport,
@@ -28,7 +41,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   onRefreshReports,
 }) => {
   const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<"ALL" | "WASTE_DETECTED" | "CLEAN" | "REPORTED">("ALL");
+  const [resultFilter, setResultFilter] = useState<ResultFilter>("ALL");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [reportToDelete, setReportToDelete] = useState<CivicReport | null>(null);
   const [showClearAllModal, setShowClearAllModal] = useState(false);
 
@@ -46,28 +60,66 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     onRefreshReports();
   };
 
-  // Filter and search logic
-  const filtered = reports.filter((rep) => {
-    // Search match
-    const query = search.toLowerCase();
-    const matchesSearch =
-      rep.location.toLowerCase().includes(query) ||
-      rep.remarks.toLowerCase().includes(query) ||
-      rep.id.toLowerCase().includes(query);
+  // Live counts for category badges
+  const wasteCount = reports.filter((r) => r.aiResult.wasteDetected).length;
+  const cleanCount = reports.filter((r) => !r.aiResult.wasteDetected).length;
+  const reportedCount = reports.filter(
+    (r) =>
+      r.status === "Reported via WhatsApp" ||
+      r.status === "Reported via Phone Call"
+  ).length;
 
-    if (!matchesSearch) return false;
+  // Filter and sort logic
+  const filteredAndSorted = useMemo(() => {
+    return reports
+      .filter((rep) => {
+        // Search match
+        const query = search.trim().toLowerCase();
+        if (query) {
+          const matchesSearch =
+            rep.location.toLowerCase().includes(query) ||
+            rep.remarks.toLowerCase().includes(query) ||
+            rep.id.toLowerCase().includes(query) ||
+            rep.aiResult.resultLabel.toLowerCase().includes(query) ||
+            rep.status.toLowerCase().includes(query);
 
-    // Type filter
-    if (filterType === "WASTE_DETECTED") return rep.aiResult.wasteDetected;
-    if (filterType === "CLEAN") return !rep.aiResult.wasteDetected;
-    if (filterType === "REPORTED")
-      return (
-        rep.status === "Reported via WhatsApp" ||
-        rep.status === "Reported via Phone Call"
-      );
+          if (!matchesSearch) return false;
+        }
 
-    return true;
-  });
+        // Analysis result filter
+        if (resultFilter === "WASTE DETECTED") {
+          return rep.aiResult.wasteDetected;
+        }
+        if (resultFilter === "NO SIGNIFICANT WASTE DETECTED") {
+          return !rep.aiResult.wasteDetected;
+        }
+        if (resultFilter === "REPORTED") {
+          return (
+            rep.status === "Reported via WhatsApp" ||
+            rep.status === "Reported via Phone Call"
+          );
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        if (sortOrder === "newest") {
+          return timeB - timeA;
+        } else {
+          return timeA - timeB;
+        }
+      });
+  }, [reports, search, resultFilter, sortOrder]);
+
+  const isFiltered = search.trim() !== "" || resultFilter !== "ALL" || sortOrder !== "newest";
+
+  const resetFilters = () => {
+    setSearch("");
+    setResultFilter("ALL");
+    setSortOrder("newest");
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-16">
@@ -110,77 +162,156 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-md">
-          <input
-            id="reports-search-input"
-            type="text"
-            placeholder="Search by location, remarks, or report ID..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#0a1711] border border-emerald-900/60 focus:border-emerald-500 rounded-lg px-3 py-2 pl-9 text-xs sm:text-sm text-[#e8f2ec] placeholder-emerald-700/60 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
-          />
-          <Search className="w-4 h-4 text-emerald-600 absolute left-3 top-2.5" />
+      {/* Filter and Sort Controls */}
+      <div className="space-y-3.5 bg-[#07160f]/80 border border-emerald-900/50 rounded-2xl p-4 sm:p-5">
+        {/* Row 1: Search & Date Sorting */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-lg">
+            <input
+              id="reports-search-input"
+              type="text"
+              placeholder="Search by location, remarks, or report ID..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-[#0a1711] border border-emerald-900/70 focus:border-emerald-500 rounded-xl px-3 py-2 pl-9 pr-8 text-xs sm:text-sm text-[#e8f2ec] placeholder-emerald-700/60 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 transition"
+            />
+            <Search className="w-4 h-4 text-emerald-600 absolute left-3 top-2.5" />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-2.5 text-emerald-500 hover:text-emerald-200 transition"
+                title="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Sort By Date */}
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <label
+              htmlFor="reports-sort-select"
+              className="text-xs text-emerald-400/90 font-mono flex items-center gap-1.5 shrink-0"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Sort by Date:</span>
+            </label>
+            <select
+              id="reports-sort-select"
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+              className="bg-[#0a1711] border border-emerald-800/80 hover:border-emerald-600/70 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-emerald-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-mono transition cursor-pointer"
+            >
+              <option value="newest">Newest First (Recent to Old)</option>
+              <option value="oldest">Oldest First (Old to Recent)</option>
+            </select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          <button
-            type="button"
-            onClick={() => setFilterType("ALL")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              filterType === "ALL"
-                ? "bg-emerald-800/60 text-white border border-emerald-600/50"
-                : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950"
-            }`}
-          >
-            All ({reports.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType("WASTE_DETECTED")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              filterType === "WASTE_DETECTED"
-                ? "bg-emerald-800/60 text-white border border-emerald-600/50"
-                : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950"
-            }`}
-          >
-            Waste Detected
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType("REPORTED")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              filterType === "REPORTED"
-                ? "bg-emerald-800/60 text-white border border-emerald-600/50"
-                : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950"
-            }`}
-          >
-            Reported
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType("CLEAN")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-              filterType === "CLEAN"
-                ? "bg-emerald-800/60 text-white border border-emerald-600/50"
-                : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950"
-            }`}
-          >
-            No Waste
-          </button>
+        {/* Row 2: Filter by Analysis Result */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-emerald-900/40">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-400/80 font-semibold mr-1">
+              Analysis Result:
+            </span>
+
+            <button
+              type="button"
+              id="filter-all-btn"
+              onClick={() => setResultFilter("ALL")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                resultFilter === "ALL"
+                  ? "bg-emerald-700/80 text-white border border-emerald-500/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                  : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950 hover:border-emerald-900"
+              }`}
+            >
+              <span>All Reports</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/40 text-emerald-300">
+                {reports.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              id="filter-waste-detected-btn"
+              onClick={() => setResultFilter("WASTE DETECTED")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                resultFilter === "WASTE DETECTED"
+                  ? "bg-emerald-700/80 text-white border border-emerald-500/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                  : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950 hover:border-emerald-900"
+              }`}
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-emerald-400" />
+              <span>WASTE DETECTED</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/40 text-emerald-300">
+                {wasteCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              id="filter-no-waste-btn"
+              onClick={() => setResultFilter("NO SIGNIFICANT WASTE DETECTED")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                resultFilter === "NO SIGNIFICANT WASTE DETECTED"
+                  ? "bg-emerald-700/80 text-white border border-emerald-500/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                  : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950 hover:border-emerald-900"
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-300" />
+              <span>NO SIGNIFICANT WASTE DETECTED</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/40 text-teal-300">
+                {cleanCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              id="filter-reported-btn"
+              onClick={() => setResultFilter("REPORTED")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition flex items-center gap-1.5 ${
+                resultFilter === "REPORTED"
+                  ? "bg-emerald-700/80 text-white border border-emerald-500/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                  : "bg-[#091811] text-emerald-300/70 hover:text-emerald-200 border border-emerald-950 hover:border-emerald-900"
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Reported to CCMC</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-black/40 text-emerald-300">
+                {reportedCount}
+              </span>
+            </button>
+          </div>
+
+          {/* Reset Filters indicator */}
+          {isFiltered && (
+            <div className="flex items-center gap-2 text-xs text-emerald-400/80 self-end sm:self-center">
+              <span className="text-[11px] font-mono">
+                Showing {filteredAndSorted.length} of {reports.length}
+              </span>
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="px-2.5 py-1 text-xs text-emerald-300 hover:text-white bg-emerald-950/70 hover:bg-emerald-900 border border-emerald-800/70 rounded-lg transition flex items-center gap-1"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Reports Grid */}
-      {filtered.length === 0 ? (
+      {filteredAndSorted.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-emerald-900/50 bg-[#06120b] p-12 text-center space-y-4">
           <div className="w-12 h-12 rounded-full bg-emerald-950/60 border border-emerald-800/50 mx-auto flex items-center justify-center text-emerald-500">
             <AlertCircle className="w-6 h-6" />
           </div>
           <div className="space-y-1">
             <p className="text-sm font-semibold text-emerald-200">
-              {reports.length === 0 ? "No reports found in local storage" : "No reports matched your search filters"}
+              {reports.length === 0 ? "No reports found in local storage" : "No reports matched your filters"}
             </p>
             <p className="text-xs text-emerald-500/70">
               {reports.length === 0
@@ -200,20 +331,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
             ) : (
               <button
                 type="button"
-                onClick={() => {
-                  setSearch("");
-                  setFilterType("ALL");
-                }}
-                className="text-xs font-medium text-emerald-400 hover:underline"
+                onClick={resetFilters}
+                className="px-4 py-2 bg-emerald-700/80 hover:bg-emerald-600 text-white font-medium text-xs rounded-xl transition flex items-center gap-1.5 mx-auto"
               >
-                Reset Filters
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset All Filters & Sort</span>
               </button>
             )}
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map((report) => {
+          {filteredAndSorted.map((report) => {
             const isDetected = report.aiResult.wasteDetected;
             return (
               <div
@@ -275,9 +404,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
 
                 {/* Footer with Timestamp and Delete button */}
                 <div className="pt-2.5 border-t border-emerald-900/40 flex items-center justify-between text-[11px] text-emerald-400/70 font-mono">
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-emerald-500" />
-                    <span>{new Date(report.timestamp).toLocaleDateString()}</span>
+                  <div className="flex items-center gap-1.5" title={`Logged at ${new Date(report.timestamp).toLocaleString()}`}>
+                    <Clock className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <span>
+                      {new Date(report.timestamp).toLocaleDateString("en-IN", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -415,3 +550,4 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     </div>
   );
 };
+

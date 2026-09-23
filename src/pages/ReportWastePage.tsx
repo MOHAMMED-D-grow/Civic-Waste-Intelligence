@@ -52,6 +52,7 @@ export const ReportWastePage: React.FC<ReportWastePageProps> = ({ onReportCreate
 
   // Step 4: AI Analysis & Submission
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState<string>("");
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   const REMARK_SUGGESTIONS = [
@@ -145,9 +146,20 @@ export const ReportWastePage: React.FC<ReportWastePageProps> = ({ onReportCreate
 
     setIsAnalyzing(true);
     setAnalysisError(null);
+    setAnalysisStage("Loading waste detection model...");
 
     try {
-      const aiResult: AIAnalysisResult = await analyzeWasteEvidence(imageBase64, imageMimeType);
+      const aiResult: AIAnalysisResult = await analyzeWasteEvidence(
+        imageBase64,
+        imageMimeType,
+        (stage) => {
+          if (stage === "loading_model") {
+            setAnalysisStage("Loading waste detection model...");
+          } else if (stage === "analyzing_image") {
+            setAnalysisStage("Analysing image...");
+          }
+        }
+      );
 
       // Create new Civic Report
       const newReport: CivicReport = {
@@ -165,10 +177,14 @@ export const ReportWastePage: React.FC<ReportWastePageProps> = ({ onReportCreate
       onReportCreated(newReport);
     } catch (err: unknown) {
       console.error("AI Analysis failed:", err);
-      const msg = err instanceof Error ? err.message : "Failed to complete AI waste analysis.";
+      const msg =
+        err instanceof Error
+          ? err.message
+          : "Waste analysis is temporarily unavailable on this device. Please try again.";
       setAnalysisError(msg);
     } finally {
       setIsAnalyzing(false);
+      setAnalysisStage("");
     }
   };
 
@@ -388,7 +404,7 @@ export const ReportWastePage: React.FC<ReportWastePageProps> = ({ onReportCreate
               STEP 4 — ANALYSE WASTE
             </h2>
             <p className="text-xs text-emerald-300/70">
-              Run server-side AI vision analysis on the uploaded photo.
+              Run browser machine learning vision analysis directly on the uploaded photo.
             </p>
           </div>
         </div>
@@ -401,7 +417,7 @@ export const ReportWastePage: React.FC<ReportWastePageProps> = ({ onReportCreate
             </div>
             <p className="leading-relaxed">{analysisError}</p>
             <p className="text-[11px] text-red-300/70">
-              Note: CleanWatch AI strictly refuses to invent or hallucinate a result. Please verify your connection or click retry below.
+              Note: CleanWatch AI strictly evaluates image features without hallucinating results. Please verify your connection or click retry below.
             </p>
             <button
               type="button"
@@ -439,7 +455,7 @@ export const ReportWastePage: React.FC<ReportWastePageProps> = ({ onReportCreate
             {isAnalyzing ? (
               <>
                 <RefreshCw className="w-5 h-5 animate-spin" />
-                <span>Analyzing Evidence Image...</span>
+                <span>{analysisStage || "Analysing image..."}</span>
               </>
             ) : (
               <>
